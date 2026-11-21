@@ -1,42 +1,83 @@
-# ToolDNA for DeepSeek Harness
+# ToolDNA
 
-ToolDNA 在 MCP 调用失败时向 Agent 提供诊断，并在当前 profile 中保留结构化证据。Agent 可以通过 `tooldna_inspect` 查看当前可见的工具、检查参数或查询这次会话的观测记录。
+**MCP 调用失败后，让 Agent 知道下一步该怎么做。**
 
-## 安装
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js 24](https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Status: Preview](https://img.shields.io/badge/status-developer%20preview-orange)](#支持范围)
 
-开发与测试基线为 Node.js 24.18.0、DSH 0.2.2-rc.5 和 pnpm 11。构建后从本地 tarball 安装。
+[快速安装](#快速安装) · [交给 AI 安装](#交给-ai-安装) · [支持范围](#支持范围) · [验收与复现](#验收与复现)
+
+ToolDNA 为 **Codex、Claude Code 和 DeepSeek Harness** 提供 MCP 参数预检和失败诊断。它能指出参数违反了哪项 Schema 约束。对于已配置的等价只读工具，ToolDNA 可以引用同一会话的成功记录，给出有证据的替代建议。
+
+> **例子**　PDF 工具 A 读取失败。ToolDNA 查到工具 B 在同一条件下读成功过，于是把 B 和证据编号提供给 Agent。Agent 确认 B 可用后，通过宿主正常的权限检查发起下一次调用。
+
+## 快速安装
+
+环境要求为 Git、Node.js 24（至少 24.9）和 pnpm 11。
 
 ```sh
+git clone https://github.com/jj-s2/ToolDNA.git
+cd ToolDNA
 pnpm install --frozen-lockfile
-pnpm test
+pnpm build
+```
+
+**Codex / Claude Code**　选用自己的客户端命令。将示例路径替换成上面克隆目录的绝对路径。
+
+```sh
+codex mcp add tooldna -- node "/absolute/path/to/ToolDNA/dist/host-mcp.js"
+claude mcp add --scope user tooldna -- node "/absolute/path/to/ToolDNA/dist/host-mcp.js"
+```
+
+打开新会话，试着说：「调用 ToolDNA，检查 `maxPages=21` 是否符合整数且上限 20 的 Schema。」预期输出为 `invalid`，字段为 `maxPages`，约束为 `maximum`。
+
+**DeepSeek Harness（DSH）**　已验证 `0.2.2-rc.5` 的 Web 与 SDK profile。使用 pnpm 11 打包，并装到要使用的 profile。
+
+```sh
 pnpm pack
 dsh plugin --profile web add ./dsh-tooldna-0.1.0.tgz
 ```
 
-重新启动 Web profile 并使用 Native preset。卸载命令为 `dsh plugin --profile web remove dsh-tooldna`，之后重启 profile。卸载后如需清理历史，可在停止 Host 后处理该 profile 下的 `tooldna` 目录。
+重启 DSH 并进入 Native preset。配置等价工具或卸载的方法见 [DSH 使用说明](DSH.md)。Claude Code 项目 Hook 和示例配置见 [跨客户端接入](HOSTS.md)。
 
-## 在 Agent 中使用
+## 交给 AI 安装
 
-- `{"op":"list"}` 查看作用域内的 MCP 工具。
-- `{"op":"check","tool":"mcp__pdf_a__read_pdf","argumentsJson":"{\"documentId\":\"demo\",\"maxPages\":21}"}` 检查参数并查看同条件证据。
-- `{"op":"history","tool":"mcp__pdf_a__read_pdf","includeArchived":true}` 查询当前会话的历史。默认只查询当前工具定义下的观测。
+把下面这段复制给 **有本机终端和文件权限的 Codex 或 Claude Code**。如有指定的宿主、目标项目或安装位置，可以直接在提示词首行补上。
 
-插件通过当前 Agent 和步骤权限查询工具。只有显式配置的只读等价候选才参与推荐，而且需要本会话的同条件成功记录。推荐由 Agent 另发调用，并继续受 DSH 权限检查约束。远端执行状态未知时应先核实业务结果。
+```text
+请在这台机器上为我安装 ToolDNA，并实际完成验证。仓库是 https://github.com/jj-s2/ToolDNA 。
 
-## 本地证据
-
-默认保存 30 天、每 profile 最多 10,000 条，位置为 `<profile>/tooldna/evidence.sqlite3`。在 `id: tooldna` 的配置中设置 `historyEnabled: false` 可关闭历史读写。ToolDNA 只保存调用状态、工具身份和指定数值参数的区间等元数据。DSH 自己的日志可能保存正常的工具参数和结果，其中包括传给 `check` 的内容。
-
-## 本地联调
-
-`demo/` 中的两个 stdio MCP 服务只返回合成 PDF 数据。SDK 联调脚本在本机启动一个固定响应的模型服务。它先调用 B 获取一个成功观测，再触发 A 失败，检查下一条模型请求里的建议是否引用 B 的证据，最后验证 B 的后续结果。
-
-```sh
-node demo/verify-sdk.mjs /absolute/path/to/dsh/lib/bin.js /absolute/path/to/isolated-dsh-home
+1. 确认我当前使用的客户端（Codex、Claude Code 或 DeepSeek Harness）、操作系统及安装范围。优先只装到当前客户端。先检查 git、Node.js 24（至少 24.9）和 pnpm 11 是否可用。若需要安装系统依赖或扩大配置范围，先告诉我。
+2. 克隆到持久目录，例如当前用户的 tools 目录。若已有 ToolDNA checkout，核实 remote 和本地修改，保留已有文件。记录本次安装的 commit SHA。执行 pnpm install --frozen-lockfile 和 pnpm build。
+3. Codex 或 Claude Code 使用本仓库 HOSTS.md 的 MCP 安装命令，把 dist/host-mcp.js 替换为这次构建的绝对路径。先检查是否已有同名 tooldna 配置；若指向别的程序，暂停并说明冲突。Claude Code 若需要自动失败诊断，再按 HOSTS.md 为目标项目安装 Hook，并保留已有 hooks。若客户端需要我在界面信任 Hook，告诉我准确的界面操作。
+4. 如果目标是 DSH，仅在已验收的 0.2.2-rc.5 上执行。运行 pnpm pack，把生成的 tarball 安装到我使用的 profile，并按 DSH.md 验证。发现其他版本时保留现有 DSH，并告诉我兼容状态。
+5. 用客户端确认 tooldna 已注册。能开启新会话时，调用 ToolDNA 检查 maxPages=21 与最大值 20 的输入 Schema，确认返回 invalid 和 maximum。若当前会话不能刷新 MCP 工具，只报告注册已验证，并说明如何在新会话验证实际调用。
+6. 最后简短列出安装位置、修改的配置、验证结果以及卸载命令。请直接在终端执行安装，不要只给我命令。
 ```
 
-隔离目录的 `sdk` profile 需先安装本项目 tarball。末尾加 `--web` 则从实际 Web 界面执行同一组用例，安装目标也改为 `web`。使用 `--control` 及未装插件的对应 profile，运行无插件对照。Windows Web 测试使用 Edge，Linux Web 测试使用 Playwright Chromium。
+## 支持范围
 
-Linux 可用 `bash demo/run-linux-sdk.sh` 从干净 profile 执行安装、联调和卸载回归。运行 `pnpm exec playwright install chromium --only-shell` 后，以 `TOOLDNA_VERIFY_WEB=1 bash demo/run-linux-sdk.sh` 加测 Web 路径。调度开销通过 `pnpm build && node demo/benchmark.mjs` 测量。
+| 宿主 | 怎么接入 | 已验证能力 |
+| --- | --- | --- |
+| Codex CLI `0.159.0` | 本地 MCP Server | 参数预检和显式诊断 |
+| Claude Code `2.1.330` | 本地 MCP Server，可选项目 Hook | 参数预检、显式诊断、失败后自动建议与本地证据 |
+| DSH `0.2.2-rc.5` | DSH bundle | 工具目录、预检、自动失败诊断、会话历史和基于证据的恢复建议 |
 
-完整实现契约和发布验收见 [ToolDNA v0.1 技术方案](./ToolDNA-v0.1-技术方案.md)。
+Codex 的自动诊断 Hook 尚未通过真实客户端验证。DSH 和 Claude Code 的证据存储按会话隔离，默认保留 30 天，最多 10,000 条。ToolDNA 不把调用实参、错误正文或工具输出写入自己的证据库；宿主日志遵循宿主设置。
+
+## 验收与复现
+
+```sh
+pnpm test
+```
+
+- [DSH 发布验收](ACCEPTANCE.md)覆盖 Windows x64 和 Ubuntu 22.04（WSL2）的安装、恢复与卸载。
+- [Codex 和 Claude Code 联调](HOSTS.md#本地联调)使用真实 CLI 和本地模拟模型。
+- [技术方案](ToolDNA-v0.1-技术方案.md)记载数据边界、诊断规则和验收门槛。
+
+这是开发者预览版。跨客户端联调使用本地合成工具，DSH 上游依赖审计见验收报告。
+
+## License
+
+[MIT](LICENSE)
