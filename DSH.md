@@ -1,6 +1,6 @@
 # ToolDNA for DeepSeek Harness
 
-ToolDNA 在 MCP 调用失败时向 Agent 提供诊断，并在当前 profile 中保留结构化证据。Agent 可以通过 `tooldna_inspect` 查看当前可见的工具、检查参数或查询这次会话的观测记录。
+ToolDNA 在内置或 MCP 工具调用失败时向 Agent 提供诊断，并在当前 profile 中保留结构化证据。Agent 可以通过 `tooldna_inspect` 查看当前可见的工具、检查参数或查询这次会话的观测记录。
 
 ## 安装
 
@@ -10,16 +10,31 @@ ToolDNA 在 MCP 调用失败时向 Agent 提供诊断，并在当前 profile 中
 pnpm install --frozen-lockfile
 pnpm test
 pnpm pack
-dsh plugin --profile web add ./dsh-tooldna-0.1.0.tgz
+dsh plugin --profile web add ./dsh-tooldna-0.2.0.tgz
 ```
 
 重新启动 Web profile 并使用 Native preset。卸载命令为 `dsh plugin --profile web remove dsh-tooldna`，之后重启 profile。卸载后如需清理历史，可在停止 Host 后处理该 profile 下的 `tooldna` 目录。
 
 ## 在 Agent 中使用
 
-- `{"op":"list"}` 查看作用域内的 MCP 工具。
+- `{"op":"list"}` 查看作用域内的工具。
 - `{"op":"check","tool":"mcp__pdf_a__read_pdf","argumentsJson":"{\"documentId\":\"demo\",\"maxPages\":21}"}` 检查参数并查看同条件证据。
 - `{"op":"history","tool":"mcp__pdf_a__read_pdf","includeArchived":true}` 查询当前会话的历史。默认只查询当前工具定义下的观测。
+
+当前源码同样观察 DSH 注册的内置工具、自定义工具和 PTC 的实际子调用。Bash 和 PowerShell 使用结构化退出码、超时和终止状态。后台任务刚启动时结果为未知。PTC 的外层 `run_code` 包装调用不重复计数。
+
+若自定义工具返回明确的 HTTP 状态、进程退出码或成功标记，可在 `id: tooldna` 的配置中声明：
+
+```yaml
+- id: tooldna
+  config:
+    outcomes:
+      - tool: my_fetch
+        kind: httpStatus
+        field: statusCode
+```
+
+同样支持 `exitCode` 和 `successFlag`。规则只解析工具结果对象中指定的字段。历史验收报告仍对应此前打包的 v0.1.0。
 
 插件通过当前 Agent 和步骤权限查询工具。只有显式配置的只读等价候选才参与推荐，而且需要本会话的同条件成功记录。推荐由 Agent 另发调用，并继续受 DSH 权限检查约束。远端执行状态未知时应先核实业务结果。
 
@@ -37,7 +52,7 @@ node demo/verify-sdk.mjs /absolute/path/to/dsh/lib/bin.js /absolute/path/to/isol
 
 隔离目录的 `sdk` profile 需先安装本项目 tarball。末尾加 `--web` 则从实际 Web 界面执行同一组用例，安装目标也改为 `web`。使用 `--control` 及未装插件的对应 profile，运行无插件对照。Windows Web 测试使用 Edge，Linux Web 测试使用 Playwright Chromium。
 
-Linux 可用 `bash demo/run-linux-sdk.sh` 从干净 profile 执行安装、联调和卸载回归。运行 `pnpm exec playwright install chromium --only-shell` 后，以 `TOOLDNA_VERIFY_WEB=1 bash demo/run-linux-sdk.sh` 加测 Web 路径。调度开销通过 `pnpm build && node demo/benchmark.mjs` 测量。
+Linux 可用 `bash demo/run-linux-sdk.sh ./dsh-tooldna-0.2.0.tgz` 从干净 profile 执行安装、联调和卸载回归。运行 `pnpm exec playwright install chromium --only-shell` 后，以 `TOOLDNA_VERIFY_WEB=1 bash demo/run-linux-sdk.sh ./dsh-tooldna-0.2.0.tgz` 加测 Web 路径。调度开销通过 `pnpm build && node demo/benchmark.mjs` 测量。
 
 完整实现契约和发布验收见 [ToolDNA v0.1 技术方案](./ToolDNA-v0.1-技术方案.md)。
 

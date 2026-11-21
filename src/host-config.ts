@@ -19,10 +19,10 @@ const command = [
   quote(join(project, '.tooldna')),
   quote(join(project, 'tooldna.hosts.json')),
 ].join(' ')
-const entry = [{ matcher: '^mcp__.*$', hooks: [{ type: 'command', command, timeout: 5 }] }]
+const entry = [{ hooks: [{ type: 'command', command, timeout: 5 }] }]
 const config = JSON.stringify({ hooks: {
   PostToolUse: entry,
-  ...(host === 'claude' ? { PostToolUseFailure: entry } : {}),
+  ...(host === 'claude' ? { PostToolUseFailure: entry, PermissionDenied: entry } : {}),
 } }, null, 2) + '\n'
 if (mode === '--write') {
   mkdirSync(dirname(target), { recursive: true })

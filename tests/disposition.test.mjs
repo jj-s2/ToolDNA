@@ -9,7 +9,7 @@ import { ToolsService, defineTool } from '@deepseek-ai/dsh-tools'
 import { executeToolBatch, ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import { apply, inject } from '../dist/dsh-plugin.js'
 
-test('DSH records terminal outcomes without dispatching blocked calls or observing nested PTC calls', async () => {
+test('DSH records terminal and nested outcomes without dispatching blocked calls', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'tooldna-disposition-'))
   const ctx = new Context()
   ctx.provide('systemPrompt', { tools() {} })
@@ -84,8 +84,8 @@ test('DSH records terminal outcomes without dispatching blocked calls or observi
     assert.equal(malformed.additionalContexts[0].source.kind, 'tooldna')
     assert.equal(entered, 5)
     const result = (await history()).value
-    assert.deepEqual(result.counts, { not_dispatched: 4, success: 1, uncertain: 3, error: 1 })
-    assert.equal(result.rows.filter(row => row.dispatch_seen === 1).length, 4)
+    assert.deepEqual(result.counts, { not_dispatched: 4, success: 2, uncertain: 3, error: 1 })
+    assert.equal(result.rows.filter(row => row.dispatch_seen === 1).length, 5)
   } finally {
     await plugin.dispose()
     await rm(directory, { recursive: true })

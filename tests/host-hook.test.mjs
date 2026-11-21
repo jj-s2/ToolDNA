@@ -20,16 +20,18 @@ test('shared MCP server exposes preflight and diagnosis on stdio', () => {
       schema: { type: 'object', properties: { n: { type: 'integer', maximum: 1 } } }, arguments: { n: 2 },
     } } },
     { id: 4, method: 'tools/call', params: { name: 'diagnose_failure', arguments: { interrupted: true } } },
+    { id: 5, method: 'tools/call', params: { name: 'diagnose_failure', arguments: { httpStatus: 429 } } },
   ]
   const run = spawnSync(process.execPath, [fileURLToPath(new URL('../dist/host-mcp.js', import.meta.url))], {
     encoding: 'utf8', input: messages.map(message => JSON.stringify({ jsonrpc: '2.0', ...message })).join('\n') + '\n',
   })
   assert.equal(run.status, 0, run.stderr)
-  const [init, list, check, diagnosis] = run.stdout.trim().split(/\r?\n/).map(line => JSON.parse(line).result)
+  const [init, list, check, diagnosis, http] = run.stdout.trim().split(/\r?\n/).map(line => JSON.parse(line).result)
   assert.equal(init.protocolVersion, '2024-11-05')
   assert.deepEqual(list.tools.map(tool => tool.name), ['check_arguments', 'diagnose_failure'])
   assert.deepEqual(JSON.parse(check.content[0].text).issues, [{ field: 'n', keyword: 'maximum' }])
   assert.equal(JSON.parse(diagnosis.content[0].text).code, 'TRANSPORT_UNCERTAIN')
+  assert.equal(JSON.parse(http.content[0].text).code, 'HTTP_429')
 })
 
 for (const host of ['codex', 'claude']) {

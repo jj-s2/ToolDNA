@@ -1,14 +1,14 @@
 # ToolDNA
 
-**MCP 调用失败后，让 Agent 知道下一步该怎么做。**
+**工具调用失败后，让 Agent 知道下一步该怎么做。**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js 24](https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Status: Preview](https://img.shields.io/badge/status-developer%20preview-orange)](#支持范围)
 
-[快速安装](#快速安装) · [交给 AI 安装](#交给-ai-安装) · [支持范围](#支持范围) · [验收与复现](#验收与复现)
+[快速安装](#快速安装) · [交给 AI 安装](#交给-ai-安装) · [支持范围](#支持范围) · [验收与复现](#验收与复现) · [v0.2.0 预览版](https://github.com/jj-s2/ToolDNA/releases/tag/v0.2.0)
 
-ToolDNA 为 **Codex、Claude Code 和 DeepSeek Harness** 提供 MCP 参数预检和失败诊断。它能指出参数违反了哪项 Schema 约束。对于已配置的等价只读工具，ToolDNA 可以引用同一会话的成功记录，给出有证据的替代建议。
+ToolDNA 为 **Codex、Claude Code 和 DeepSeek Harness** 提供工具参数预检和失败诊断。支持按宿主事件观察内置工具与 MCP 工具，也可以显式诊断 API 状态和 CLI 退出码。对于已配置的等价只读工具，ToolDNA 可以引用同一会话的成功记录，给出有证据的替代建议。
 
 > **例子**　PDF 工具 A 读取失败。ToolDNA 查到工具 B 在同一条件下读成功过，于是把 B 和证据编号提供给 Agent。Agent 确认 B 可用后，通过宿主正常的权限检查发起下一次调用。
 
@@ -32,11 +32,10 @@ claude mcp add --scope user tooldna -- node "/absolute/path/to/ToolDNA/dist/host
 
 打开新会话，试着说：「调用 ToolDNA，检查 `maxPages=21` 是否符合整数且上限 20 的 Schema。」预期输出为 `invalid`，字段为 `maxPages`，约束为 `maximum`。
 
-**DeepSeek Harness（DSH）**　已验证 `0.2.2-rc.5` 的 Web 与 SDK profile。使用 pnpm 11 打包，并装到要使用的 profile。
+**DeepSeek Harness（DSH）**　已验证 `0.2.2-rc.5`。可从发布页下载 `dsh-tooldna-0.2.0.tgz`，也可以在完成上面的构建后运行 `pnpm pack`。将安装包装到要使用的 profile。
 
 ```sh
-pnpm pack
-dsh plugin --profile web add ./dsh-tooldna-0.1.0.tgz
+dsh plugin --profile web add ./dsh-tooldna-0.2.0.tgz
 ```
 
 重启 DSH 并进入 Native preset。配置等价工具或卸载的方法见 [DSH 使用说明](DSH.md)。Claude Code 项目 Hook 和示例配置见 [跨客户端接入](HOSTS.md)。
@@ -61,8 +60,8 @@ dsh plugin --profile web add ./dsh-tooldna-0.1.0.tgz
 | 宿主 | 怎么接入 | 已验证能力 |
 | --- | --- | --- |
 | Codex CLI `0.159.0` | 本地 MCP Server | 参数预检和显式诊断 |
-| Claude Code `2.1.330` | 本地 MCP Server，可选项目 Hook | 参数预检、显式诊断、失败后自动建议与本地证据 |
-| DSH `0.2.2-rc.5` | DSH bundle | 工具目录、预检、自动失败诊断、会话历史和基于证据的恢复建议 |
+| Claude Code `2.1.330` | 本地 MCP Server，可选项目 Hook | 参数预检、显式诊断、Bash 与 MCP 自动失败建议、本地证据 |
+| DSH `0.2.2-rc.5` | DSH bundle | 内置及 MCP 工具目录与诊断、会话历史、PTC 子调用、基于证据的恢复建议 |
 
 Codex 的自动诊断 Hook 尚未通过真实客户端验证。DSH 和 Claude Code 的证据存储按会话隔离，默认保留 30 天，最多 10,000 条。ToolDNA 不把调用实参、错误正文或工具输出写入自己的证据库；宿主日志遵循宿主设置。
 
@@ -72,7 +71,7 @@ Codex 的自动诊断 Hook 尚未通过真实客户端验证。DSH 和 Claude Co
 pnpm test
 ```
 
-- [DSH 发布验收](ACCEPTANCE.md)覆盖 Windows x64 和 Ubuntu 22.04（WSL2）的安装、恢复与卸载。
+- [DSH v0.1.0 历史验收](ACCEPTANCE.md)覆盖 Windows x64 和 Ubuntu 22.04（WSL2）的安装、恢复与卸载。当前版本的验证范围见发布页。
 - [Codex 和 Claude Code 联调](HOSTS.md#本地联调)使用真实 CLI 和本地模拟模型。
 - [技术方案](ToolDNA-v0.1-技术方案.md)记载数据边界、诊断规则和验收门槛。
 

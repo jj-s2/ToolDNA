@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-bundle="${1:-$repo/dsh-tooldna-0.1.0.tgz}"
+bundle="${1:-$repo/$(node -p "const pkg = require(process.argv[1]); pkg.name + '-' + pkg.version + '.tgz'" "$repo/package.json")}"
 bundle="$(realpath "$bundle")"
 work="$(mktemp -d)"
 export DSH_HOME="$work/dsh"

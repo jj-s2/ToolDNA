@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 
 const [binary, mode] = process.argv.slice(2)
-const useHook = mode === '--hook'
+const shell = mode === '--shell'
+const useHook = mode === '--hook' || shell
 assert.ok(binary, 'Usage: node demo/verify-claude-mcp.mjs /path/to/claude')
 const root = mkdtempSync(join(tmpdir(), 'tooldna-claude-'))
 const config = join(root, 'mcp.json')
@@ -24,7 +25,7 @@ if (useHook) {
 let calls = 0
 let delivered = false
 let advertised = []
-const toolName = useHook ? 'mcp__pdf_a__read_pdf' : 'mcp__tooldna__check_arguments'
+const toolName = shell ? 'Bash' : useHook ? 'mcp__pdf_a__read_pdf' : 'mcp__tooldna__check_arguments'
 const server = createServer(async (req, res) => {
   const chunks = []
   for await (const chunk of req) chunks.push(chunk)
@@ -36,8 +37,9 @@ const server = createServer(async (req, res) => {
   const task = input.tools?.some(tool => tool.name === toolName)
   advertised = input.tools?.map(tool => tool.name) ?? []
   const step = task ? ++calls : 0
-  if (step > 1) delivered ||= JSON.stringify(input.messages).includes(useHook ? '[ToolDNA]' : 'maximum')
-  const args = useHook ? { documentId: 'demo', maxPages: 21 }
+  if (step > 1) delivered ||= JSON.stringify(input.messages).includes(shell ? '命令退出码为 7' : useHook ? '[ToolDNA]' : 'maximum')
+  const args = shell ? { command: 'exit 7', description: 'Synthetic exit code 7' }
+    : useHook ? { documentId: 'demo', maxPages: 21 }
     : { schema: { type: 'object', properties: { maxPages: { type: 'integer', maximum: 20 } } },
     arguments: { maxPages: 21 } }
   const block = step === 1

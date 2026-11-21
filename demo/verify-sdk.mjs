@@ -181,11 +181,18 @@ try {
   if (ptc) {
     assert.equal(receipt.requests, 2)
     assert.deepEqual(edgeReceipt, { toolReturned: true, tooldnaContext: false })
-    const db = new DatabaseSync(join(dshHome, 'profiles', 'sdk', 'tooldna', 'evidence.sqlite3'), { readOnly: true })
+    const db = new DatabaseSync(join(dshHome, 'profiles', 'sdk', 'tooldna', 'evidence.sqlite3'), { readOnly: true, timeout: 500 })
     try {
-      assert.equal(db.prepare('SELECT count(*) AS count FROM observations').get().count, 0)
+      const read = db.prepare('SELECT tool_name, host_status FROM observations')
+      let rows
+      for (let attempt = 0; attempt < 50; attempt++) {
+        rows = read.all().map(row => ({ ...row }))
+        if (rows.length) break
+        await new Promise(resolve => setTimeout(resolve, 20))
+      }
+      assert.deepEqual(rows, [{ tool_name: pdfB, host_status: 'success' }])
     } finally { db.close() }
-    console.log(JSON.stringify({ mode: 'ptc', ...edgeReceipt, observations: 0 }))
+    console.log(JSON.stringify({ mode: 'ptc', ...edgeReceipt, observations: 1 }))
   } else {
     console.log(JSON.stringify(receipt))
     assert.deepEqual(receipt, control

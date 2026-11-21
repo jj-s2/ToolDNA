@@ -10,6 +10,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute, join } from 'node:path'
 import { EvidenceStore } from './evidence-store.js'
 import { conditionKey, conditionBucket, summarize } from './recovery.js'
+import { configuredOutcome, dshShellOutcome, isObservedTool } from './tool-outcome.js'
 import type { ConditionRule, AlternativeRule } from './recovery.js'
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -31,10 +32,11 @@ export const Config: z<PluginOptions> = z.object({
   readOnlyAlternatives: z.array(z.object({
     from: z.string().required(), to: z.string().required(),
   })).default([]),
+  outcomes: z.array(z.object({
+    tool: z.string().required(), kind: z.union(['httpStatus', 'exitCode', 'successFlag']).required(),
+    field: z.string().required(),
+  })).default([]),
 })
-
-const isMcpName = (name: string | undefined): name is string =>
-  typeof name === 'string' && /^mcp__[A-Za-z0-9_-]{1,123}$/.test(name)
 
 interface PluginOptions {
   historyEnabled?: boolean
@@ -42,6 +44,7 @@ interface PluginOptions {
   maxEvents?: number
   conditionRules?: ConditionRule[]
   readOnlyAlternatives?: AlternativeRule[]
+  outcomes?: { tool: string; kind: 'httpStatus' | 'exitCode' | 'successFlag'; field: string }[]
 }
 
 function canonical(value: unknown): unknown {
@@ -55,9 +58,19 @@ function canonical(value: unknown): unknown {
 
 export function apply(ctx: Context, config: PluginOptions = {}): void {
   const preflight = new Preflight()
+  const outcomeRules = new Map(config.outcomes?.map(rule => [rule.tool, rule]))
+  function classify(exec: { name: string }, result: Parameters<typeof diagnose>[0], stage?: {
+    enteredDispatch: boolean; denied: boolean; validation?: Validation
+  }) {
+    if (stage?.enteredDispatch && !result.isError) {
+      const explicit = dshShellOutcome(exec.name, result) ?? configuredOutcome(outcomeRules.get(exec.name), result.value)
+      if (explicit) return explicit
+    }
+    return diagnose(result, stage?.enteredDispatch ?? false, stage?.denied ?? false, stage?.validation)
+  }
   const retentionDays = config.retentionDays ?? 30
   const rules = new Map((config.conditionRules ?? [])
-    .filter(rule => isMcpName(rule.tool) && /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(rule.numericField) &&
+    .filter(rule => isObservedTool(rule.tool) && /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(rule.numericField) &&
       rule.cutoffs.length >= 1 && rule.cutoffs.length <= 4 && rule.cutoffs.every((cutoff, index) =>
         Number.isFinite(cutoff) && (index === 0 || cutoff > rule.cutoffs[index - 1])))
     .map(rule => [rule.tool, rule]))
@@ -109,7 +122,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
   function candidateFor(toolName: string, input: unknown, exec: ToolExecution) {
     if (!exec.agent || !exec.toolSet) return null
     const name = alternative.get(toolName)
-    if (!isMcpName(name) || name === toolName) return null
+    if (!isObservedTool(name) || name === toolName) return null
     const source = ctx.tools.get(toolName, exec.agent, exec.toolSet)
     const candidate = ctx.tools.get(name, exec.agent, exec.toolSet)
     if (!source || source !== ctx.tools.get(toolName) || !candidate || candidate !== ctx.tools.get(name)) return null
@@ -122,7 +135,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
   }
   ctx.tools.register(defineTool({
     name: 'tooldna_inspect',
-    description: 'List visible MCP tools or check arguments against a visible MCP tool schema.',
+    description: 'List visible tools, query their call history, or check arguments against a visible tool schema.',
     parameters: {
       op: { type: 'string', enum: ['list', 'check', 'history'], required: true },
       tool: { type: 'string' },
@@ -150,7 +163,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
       const limit = args.limit ?? 10
       if (limit < 1 || limit > 25) return { ...base, status: 'invalid_request' }
       if (args.op === 'history') {
-        if (!isMcpName(args.tool)) return { ...base, status: 'invalid_request' }
+        if (!isObservedTool(args.tool)) return { ...base, status: 'invalid_request' }
         const tool = ctx.tools.get(args.tool, exec.agent, exec.toolSet)
         if (!tool) return { ...base, status: 'tool_unavailable' }
         if (config.historyEnabled === false) return { ...base, status: 'history_disabled' }
@@ -186,7 +199,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
         }
       }
       if (args.op === 'check') {
-        if (!isMcpName(args.tool) || args.argumentsJson === undefined ||
+        if (!isObservedTool(args.tool) || args.argumentsJson === undefined ||
             Buffer.byteLength(args.argumentsJson) > 32 * 1024) {
           return { ...base, status: 'invalid_request' }
         }
@@ -215,7 +228,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
         }
       }
       const tools = ctx.tools.definitions(exec.agent, exec.toolSet)
-        .filter(tool => isMcpName(tool.name))
+        .filter(tool => isObservedTool(tool.name))
         .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
       const sessionKey = store?.sessionKey(exec.agent.id)
       const epochs = new Set<string>()
@@ -243,7 +256,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
   }))
 
   ctx.on('tools/pre-execute', async (exec, next) => {
-    const eligible = exec.agent && !exec.parent && isMcpName(exec.name)
+    const eligible = exec.agent && isObservedTool(exec.name)
     if (!eligible) return next()
     const stage: NonNullable<ReturnType<typeof stages.get>> = { enteredDispatch: false, denied: false }
     try {
@@ -276,14 +289,15 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
   ctx.on('tools/result', (exec, result) => {
     const stage = stages.get(exec)
     stages.delete(exec)
-    if (!store || !exec.agent || exec.parent || !isMcpName(exec.name)) return undefined
+    if (!store || !exec.agent || !isObservedTool(exec.name)) return undefined
     const sessionKey = store.sessionKey(exec.agent.id)
-    const diagnosis = diagnose(result, stage?.enteredDispatch ?? false, stage?.denied ?? false, stage?.validation)
+    const diagnosis = classify(exec, result, stage)
     if (!sessionKey || !store.enqueue({
       id: randomUUID(), sessionKey, tool: exec.name,
       schemaHash: stage?.version?.schemaHash ?? null, definitionEpoch: stage?.version?.definitionEpoch ?? null,
       observedAtMs: Date.now(), dispatchMs: stage?.dispatchMs ?? null, dispatchSeen: stage?.enteredDispatch ?? false,
-      status: diagnosis.outcome, diagnosisCode: diagnosis.code, errorCode: diagnosis.errorCode ?? null,
+      status: diagnosis.outcome, diagnosisCode: diagnosis.code,
+      errorCode: 'errorCode' in diagnosis ? String(diagnosis.errorCode ?? '') || null : null,
       featureKey: stage?.featureKey ?? null, featureBucket: stage?.featureBucket ?? null,
     })) dropped.add(exec.agent)
     return undefined
@@ -294,12 +308,12 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
     const stage = stages.get(exec)
     // In the pinned DSH pipeline, post-execute can also run after a guard denies a prepared call.
     if (stage && !stage.enteredDispatch && result.isError) stage.denied = true
-    if (decision.kind !== 'accept' || !result.isError || !exec.agent ||
-        exec.parent || exec.signal.aborted || !isMcpName(exec.name)) {
+    if (decision.kind !== 'accept' || !exec.agent ||
+        exec.signal.aborted || !isObservedTool(exec.name)) {
       return decision
     }
-    const { advice, outcome, code } = diagnose(result, stage?.enteredDispatch ?? false, stage?.denied ?? false, stage?.validation)
-    if (outcome === 'not_dispatched') return decision
+    const { advice, outcome, code } = classify(exec, result, stage)
+    if (!advice || outcome === 'not_dispatched') return decision
     const now = performance.now()
     const recent = (feedback.get(exec.agent) ?? []).filter(time => now - time < 10_000)
     if (recent.length >= 3) return decision
@@ -326,7 +340,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
     }
     const diagnostic = createUserMessage({
       source: { kind: 'tooldna' },
-      content: [{ type: 'text', text: `[ToolDNA] MCP 调用失败。${advice}${recommendation}`.slice(0, 512) }],
+      content: [{ type: 'text', text: `[ToolDNA] ${advice}${recommendation}`.slice(0, 512) }],
     })
     return {
       ...decision,

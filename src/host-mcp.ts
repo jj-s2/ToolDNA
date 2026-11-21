@@ -1,11 +1,12 @@
 import { createInterface } from 'node:readline'
 import { Preflight } from './preflight.js'
 import { diagnose } from './diagnosis.js'
+import { commandExit, httpOutcome, isObject, interrupted } from './tool-outcome.js'
 
 const preflight = new Preflight()
 const tools = [{
   name: 'check_arguments',
-  description: 'Check proposed MCP tool arguments against its input JSON Schema without executing the tool.',
+  description: 'Check proposed tool or API arguments against a supplied JSON Schema without executing the operation.',
   inputSchema: {
     type: 'object',
     required: ['schema', 'arguments'],
@@ -13,16 +14,13 @@ const tools = [{
   },
 }, {
   name: 'diagnose_failure',
-  description: 'Get a conservative next-step suggestion for an MCP failure. Pass only the outcome category and an optional schema and arguments.',
+  description: 'Diagnose a tool, API or shell result from its explicit exit code, HTTP status, interruption flag, or input schema.',
   inputSchema: {
     type: 'object',
-    properties: { interrupted: { type: 'boolean' }, schema: { type: 'object' }, arguments: { type: 'object' } },
+    properties: { interrupted: { type: 'boolean' }, exitCode: { type: 'integer' }, httpStatus: { type: 'integer' },
+      schema: { type: 'object' }, arguments: { type: 'object' } },
   },
 }]
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-}
 
 function dispatch(method: unknown, params: unknown): unknown {
   if (method === 'initialize') {
@@ -44,9 +42,11 @@ function dispatch(method: unknown, params: unknown): unknown {
   if (isObject(params) && params.name === 'check_arguments' && validation) {
     output = validation
   } else if (isObject(params) && params.name === 'diagnose_failure') {
-    output = input.interrupted === true
-      ? { code: 'TRANSPORT_UNCERTAIN', advice: '远端结果未知，再次调用前请核实业务状态。' }
-      : diagnose({ isError: true, error: { message: '' }, content: [] }, true, false, validation)
+    if (input.interrupted === true) output = interrupted
+    else if (typeof input.exitCode === 'number' && Number.isSafeInteger(input.exitCode)) output = commandExit(input.exitCode)
+    else if (typeof input.httpStatus === 'number' && Number.isInteger(input.httpStatus) &&
+        input.httpStatus >= 100 && input.httpStatus <= 599) output = httpOutcome(input.httpStatus)
+    else output = diagnose({ isError: true, error: { message: '' }, content: [] }, true, false, validation)
   } else {
     return { isError: true, content: [{ type: 'text', text: 'Unknown tool or invalid input.' }] }
   }

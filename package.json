@@ -1,7 +1,7 @@
 {
   "name": "dsh-tooldna",
-  "version": "0.1.0",
-  "description": "Evidence-based MCP tool diagnostics for DeepSeek Harness",
+  "version": "0.2.0",
+  "description": "Tool-call preflight and failure diagnostics for Codex, Claude Code, and DeepSeek Harness",
   "type": "module",
   "license": "MIT",
   "exports": "./dist/dsh-plugin.js",

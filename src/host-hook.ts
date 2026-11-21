@@ -5,11 +5,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { diagnose } from './diagnosis.js'
 import { Preflight } from './preflight.js'
 import { conditionBucket } from './recovery.js'
+import { configuredOutcome, hookOutcome, isObservedTool } from './tool-outcome.js'
 
 type ObjectValue = Record<string, unknown>
 const object = (value: unknown): value is ObjectValue =>
   Boolean(value && typeof value === 'object' && !Array.isArray(value))
-const namePattern = /^mcp__[\w.-]{1,123}$/
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const [host, dataDirectory, policyFile] = process.argv.slice(2)
 
@@ -30,17 +30,12 @@ function readPayload(): unknown {
 function main(): void {
   if (!['codex', 'claude'].includes(host) || !dataDirectory) return
   const event = readPayload()
-  if (!object(event) || typeof event.tool_name !== 'string' || !namePattern.test(event.tool_name) ||
-      /^mcp__tooldna__/.test(event.tool_name) ||
+  if (!object(event) || !isObservedTool(event.tool_name) ||
       typeof event.session_id !== 'string' || !event.session_id || event.session_id.length > 256 ||
       typeof event.tool_use_id !== 'string' || !event.tool_use_id || event.tool_use_id.length > 256) return
   const kind = event.hook_event_name
-  if (kind !== 'PostToolUse' && !(host === 'claude' && kind === 'PostToolUseFailure')) return
-  const result = event.tool_response
-  const failed = kind === 'PostToolUseFailure' || (host === 'codex' && object(result) && result.isError === true)
-  const success = host === 'claude' ? kind === 'PostToolUse' :
-    object(result) && Array.isArray(result.content) && (result.isError === false || result.isError === undefined)
-  if (!failed && !success) return
+  const nativeOutcome = hookOutcome(host, event.tool_name, event)
+  if (!nativeOutcome) return
 
   let policy: ObjectValue = {}
   if (policyFile) {
@@ -53,9 +48,15 @@ function main(): void {
     } catch { /* An optional local policy may not exist. */ }
   }
   const name = event.tool_name
+  if (Array.isArray(policy.includeTools) && !policy.includeTools.includes(name)) return
+  if (Array.isArray(policy.excludeTools) && policy.excludeTools.includes(name)) return
   const input = event.tool_input
   const schemas = object(policy.schemas) ? policy.schemas : {}
   const config = object(policy.conditions) ? policy.conditions : {}
+  const outcomeRules = object(policy.outcomes) ? policy.outcomes : {}
+  const ruleFor = (tool: string) => Object.hasOwn(outcomeRules, tool) ? outcomeRules[tool] : undefined
+  const outcome = (nativeOutcome.code === 'SUCCESS' || nativeOutcome.code === 'OUTCOME_UNKNOWN')
+    ? configuredOutcome(ruleFor(name), event.tool_response) ?? nativeOutcome : nativeOutcome
   const schema = Object.hasOwn(schemas, name) ? schemas[name] : undefined
   const condition = Object.hasOwn(config, name) ? config[name] : undefined
   function bucket(rule: unknown): number | null {
@@ -67,11 +68,10 @@ function main(): void {
   }
   const preflight = new Preflight()
   const validation = object(schema) ? preflight.check(schema, event.tool_input) : undefined
-  const uncertain = event.is_interrupt === true
-  const diagnosis = diagnose(failed
-    ? { isError: true, error: { message: '' }, content: [] }
-    : { isError: false, value: null, content: [] }, true, false, validation)
-  let advice = uncertain ? '远端结果未知，再次调用前请核实业务状态。' : diagnosis.advice
+  const diagnosis = outcome.code === 'UNCLASSIFIED_ERROR'
+    ? diagnose({ isError: true, error: { message: '' }, content: [] }, true, false, validation)
+    : outcome
+  let advice = diagnosis.advice
   try {
     mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
     const db = new DatabaseSync(join(dataDirectory, 'host-evidence.sqlite3'), { timeout: 150 })
@@ -90,31 +90,33 @@ function main(): void {
       const scope = createHmac('sha256', salt).update(JSON.stringify([host, event.session_id, event.agent_id ?? null])).digest('hex')
       const id = hash(JSON.stringify([scope, event.tool_use_id, name]))
       const currentBucket = bucket(condition)
-      const fingerprint = (toolSchema: unknown, toolCondition: unknown) => hash(JSON.stringify([policy.generation ?? null, toolSchema ?? null, toolCondition ?? null]))
+      const fingerprint = (tool: string, toolSchema: unknown, toolCondition: unknown) =>
+        hash(JSON.stringify([policy.generation ?? null, toolSchema ?? null, toolCondition ?? null, ruleFor(tool) ?? null]))
       const cutoff = Date.now() - 30 * 86_400_000
       db.exec('BEGIN IMMEDIATE')
       db.prepare('INSERT OR IGNORE INTO observations VALUES(?,?,?,?,?,?,?,?)').run(id, scope, name,
-        fingerprint(schema, condition), currentBucket, Date.now(), uncertain ? 'uncertain' : diagnosis.outcome,
-        uncertain ? 'TRANSPORT_UNCERTAIN' : diagnosis.code)
+        fingerprint(name, schema, condition), currentBucket, Date.now(), diagnosis.outcome, diagnosis.code)
       db.prepare('DELETE FROM observations WHERE observed < ?').run(cutoff)
       db.exec('DELETE FROM observations WHERE id IN (SELECT id FROM observations ORDER BY observed DESC, id DESC LIMIT -1 OFFSET 10000); COMMIT')
       const alternatives = object(policy.readOnlyAlternatives) ? policy.readOnlyAlternatives : {}
       const candidate = Object.hasOwn(alternatives, name) ? alternatives[name] : undefined
-      if (failed && !uncertain && typeof policy.generation === 'string' && policy.generation &&
+      if (diagnosis.code === 'UNCLASSIFIED_ERROR' && typeof policy.generation === 'string' && policy.generation &&
           validation?.validation === 'valid' && currentBucket !== null &&
-          typeof candidate === 'string' && candidate !== name && namePattern.test(candidate) &&
+          isObservedTool(candidate) && candidate !== name &&
+          (!Array.isArray(policy.includeTools) || policy.includeTools.includes(candidate)) &&
+          (!Array.isArray(policy.excludeTools) || !policy.excludeTools.includes(candidate)) &&
           JSON.stringify(condition) === JSON.stringify(config[candidate]) && object(schemas[candidate]) &&
           preflight.check(schemas[candidate], event.tool_input).validation === 'valid') {
         const record = db.prepare(`SELECT id FROM observations WHERE scope=? AND tool=? AND fingerprint=? AND bucket=?
           AND outcome='success' AND observed>=? ORDER BY observed DESC LIMIT 1`).get(
-          scope, candidate, fingerprint(schemas[candidate], config[candidate]), currentBucket, cutoff)
+          scope, candidate, fingerprint(candidate, schemas[candidate], config[candidate]), currentBucket, cutoff)
         if (record) advice += ` 若当前仍可用且已获授权，可尝试 ${candidate}（同条件成功证据 ${record.id}）。`
       }
     } finally {
       db.close()
     }
   } catch { /* A history failure must not suppress the current diagnosis. */ }
-  if (failed) {
+  if (advice) {
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: { hookEventName: kind, additionalContext: `[ToolDNA] ${advice}`.slice(0, 512) },
     }) + '\n')
