@@ -44,14 +44,17 @@ test('concurrent calls retain their registry identity across tool replacement an
       await new Promise(resolve => setTimeout(resolve, 5))
     }
     assert.equal(ready, 'no_observations')
+    assert.equal((await invoke('tooldna_inspect', { op: 'list' })).value.tools[0].evidenceStatus, 'no_observations')
     await Promise.all([1, 2, 3].map(pages => invoke(name, { pages })))
     const original = (await history()).value.rows
     assert.equal(original.length, 3)
     assert.equal(new Set(original.map(row => row.id)).size, 3)
+    assert.equal((await invoke('tooldna_inspect', { op: 'list' })).value.tools[0].evidenceStatus, 'observed')
     assert.equal((await history(true, { id: 'another-agent' })).value.rows.length, 0)
     dispose()
     dispose = register('pages')
     assert.equal((await history()).value.rows.length, 0)
+    assert.equal((await invoke('tooldna_inspect', { op: 'list' })).value.tools[0].evidenceStatus, 'no_observations')
     await invoke(name, { pages: 4 })
     const reloaded = (await history()).value.rows[0]
     assert.equal(reloaded.schema_hash, original[0].schema_hash)

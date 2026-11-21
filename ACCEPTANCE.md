@@ -1,6 +1,6 @@
 # ToolDNA v0.1.0 发布验收
 
-验收对象为 `dsh-tooldna-0.1.0.tgz`，SHA-256 为 `1ad156e82c629c73f72c72b642684ece532533bb4fbc6c7dfcc22d369a5d2ed8`。Windows x64 与 Ubuntu 22.04 x64（WSL2）使用 Node.js 24.18.0、DSH 0.2.2-rc.5。Web 分别使用 Edge 与 Chromium Headless Shell。两端各通过 16 项 Node 测试。
+验收对象为 `dsh-tooldna-0.1.0.tgz`，SHA-256 为 `b773457101771546408a3d7cb0bfe639cbb6baf52e655ebc2e499c4b7e069715`。Windows x64 与 Ubuntu 22.04 x64（WSL2）使用 Node.js 24.18.0、DSH 0.2.2-rc.5。Web 分别使用 Edge 与 Chromium Headless Shell。两端各通过 16 项 Node 测试。
 
 | 验收项 | 证据 |
 | --- | --- |
@@ -14,7 +14,7 @@
 | T08 故障降级 | [存储测试](tests/evidence-store.test.mjs) 验证 1,024 条背压、SQLite 写锁、路径错误、未知版本。[插件测试](tests/dsh-pipeline.test.mjs) 验证不可写时保留原失败并报告降级。Ubuntu 使用不可写目录，Windows 使用不可作为目录的路径 |
 | T09 脱敏 | [插件测试](tests/dsh-pipeline.test.mjs) 在 SQLite、WAL、查询输出和诊断上下文中检查哨兵。原 DSH 错误保有原文本。插件日志发射点只提供固定原因码 |
 | T10 配置与卸载 | [存储测试](tests/evidence-store.test.mjs) 验证超期和超量清理。[插件测试](tests/dsh-pipeline.test.mjs) 验证关闭历史时旧文件保持原样。双平台回执均含 Web、SDK 实际卸载后的模型请求 |
-| T11 调度开销 | [基准脚本](demo/benchmark.mjs) 每组预热 50 次、测量 500 次。Windows p50/p95/p99 从 0.0687/0.2189/0.3414 ms 变为 0.1093/0.2421/0.4397 ms，Ubuntu 从 0.0532/0.1325/0.2913 ms 变为 0.0836/0.1920/0.4682 ms。p95 增量分别为 0.0232 ms 与 0.0595 ms，两端丢弃均为 0 |
+| T11 调度开销 | [基准脚本](demo/benchmark.mjs) 每组预热 50 次、测量 500 次。Windows p50/p95/p99 从 0.0840/0.1759/0.3524 ms 变为 0.1223/0.2449/0.4372 ms，Ubuntu 从 0.0661/0.1840/0.3986 ms 变为 0.1031/0.2737/0.6915 ms。p95 增量分别为 0.0690 ms 与 0.0897 ms，两端丢弃均为 0 |
 
 ## 复验命令
 

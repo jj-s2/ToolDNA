@@ -2,7 +2,7 @@
   "platform": "linux",
   "arch": "x64",
   "node": "v24.18.0",
-  "tarballSha256": "1ad156e82c629c73f72c72b642684ece532533bb4fbc6c7dfcc22d369a5d2ed8",
+  "tarballSha256": "b773457101771546408a3d7cb0bfe639cbb6baf52e655ebc2e499c4b7e069715",
   "lockfileSha256": "ed553d087b5414e04c7632a37a09d23bf9624a07e10c647b826701ef4ad4120b",
   "runs": {
     "sdk": {

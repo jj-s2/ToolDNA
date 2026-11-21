@@ -17,6 +17,7 @@ test('checks fields without rewriting input and reuses the registered schema', (
   assert.deepEqual(argumentsObject, { pages: 101 })
   assert.equal(preflight.check(schema, { pages: 100 }).validation, 'valid')
   assert.deepEqual(preflight.check(schema, {}).issues, [{ field: 'pages', keyword: 'required' }])
+  assert.deepEqual(preflight.check(schema, { pages: '100' }).issues, [{ field: 'pages', keyword: 'type' }])
 })
 
 test('returns unavailable for unsupported keywords and oversized inputs', () => {

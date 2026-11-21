@@ -61,6 +61,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
       rule.cutoffs.length >= 1 && rule.cutoffs.length <= 4 && rule.cutoffs.every((cutoff, index) =>
         Number.isFinite(cutoff) && (index === 0 || cutoff > rule.cutoffs[index - 1])))
     .map(rule => [rule.tool, rule]))
+  const conditionKeys = new Map([...rules].map(([tool, rule]) => [tool, conditionKey(rule)]))
   const alternative = new Map((config.readOnlyAlternatives ?? []).map(rule => [rule.from, rule.to]))
   const versions = new WeakMap<object, { schemaHash: string; definitionEpoch: string }>()
   function identity(tool: { parameters: object }) {
@@ -96,7 +97,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
     const sessionKey = exec.agent && store?.sessionKey(exec.agent.id)
     const tool = exec.agent && ctx.tools.get(toolName, exec.agent, exec.toolSet)
     const rule = rules.get(toolName)
-    const featureKey = conditionKey(rule)
+    const featureKey = conditionKeys.get(toolName)
     const featureBucket = conditionBucket(rule, input)
     if (!store || !sessionKey || !tool || !featureKey || featureBucket === null) return undefined
     return summarize(store.recent.values(), {
@@ -112,8 +113,8 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
     const source = ctx.tools.get(toolName, exec.agent, exec.toolSet)
     const candidate = ctx.tools.get(name, exec.agent, exec.toolSet)
     if (!source || source !== ctx.tools.get(toolName) || !candidate || candidate !== ctx.tools.get(name)) return null
-    const sourceRule = conditionKey(rules.get(toolName))
-    if (!sourceRule || sourceRule !== conditionKey(rules.get(name))) return null
+    const sourceRule = conditionKeys.get(toolName)
+    if (!sourceRule || sourceRule !== conditionKeys.get(name)) return null
     if (preflight.check(candidate.parameters, input).validation !== 'valid') return null
     const evidence = evidenceFor(name, input, exec)
     if (!evidence?.evidenceId) return null
@@ -131,7 +132,17 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
     },
     output: {
       schema: { type: 'json' },
-      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      render: (_args, value) => {
+        const result = value as { op: string; status: string }
+        const actions: Record<string, string> = { list: '工具目录', check: '参数预检', history: '调用证据' }
+        const statuses: Record<string, string> = {
+          ok: '查询完成', no_observations: '暂无观测', degraded: '证据可能不完整',
+          history_disabled: '本地历史已关闭', tool_unavailable: '当前步骤不可用', invalid_request: '请求格式无效',
+        }
+        return [{ type: 'text', text: JSON.stringify({
+          ...result, summary: `${actions[result.op] ?? 'ToolDNA'} · ${statuses[result.status] ?? result.status}`,
+        }) }]
+      },
     },
     async execute(args, exec) {
       const base = { version: 1, op: args.op, truncated: false }
@@ -146,7 +157,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
         const sessionKey = store?.sessionKey(exec.agent.id)
         if (!store || !sessionKey) return { ...base, status: 'degraded' }
         const version = identity(tool)
-        const featureKey = conditionKey(rules.get(args.tool))
+        const featureKey = conditionKeys.get(args.tool) ?? null
         const history = await store.history({
           sessionKey, tool: args.tool, ...version, featureKey, archived: args.includeArchived === true, limit,
         })
@@ -160,7 +171,10 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
               row.feature_key === featureKey,
           }
           remainingBytes -= Buffer.byteLength(JSON.stringify(publicRow)) + 1
-          if (remainingBytes < 0) break
+          if (remainingBytes < 0) {
+            rows.splice(3)
+            break
+          }
           rows.push(publicRow)
         }
         return {
@@ -203,10 +217,27 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
       const tools = ctx.tools.definitions(exec.agent, exec.toolSet)
         .filter(tool => isMcpName(tool.name))
         .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+      const sessionKey = store?.sessionKey(exec.agent.id)
+      const epochs = new Set<string>()
+      const cutoff = Date.now() - retentionDays * 86_400_000
+      if (store && sessionKey) {
+        for (const row of store.recent.values()) {
+          if (row.sessionKey === sessionKey && row.definitionEpoch && row.observedAtMs >= cutoff &&
+              row.featureKey === (conditionKeys.get(row.tool) ?? null)) epochs.add(row.definitionEpoch)
+        }
+      }
+      const evidenceStatus = config.historyEnabled === false ? 'history_disabled'
+        : !sessionKey || dropped.has(exec.agent) ? 'degraded' : 'no_observations'
       return {
         ...base, status: 'ok', availability: exec.toolSet ? 'step' : 'registered',
         truncated: tools.length > limit,
-        tools: tools.slice(0, limit).map(tool => ({ name: tool.name, schemaHash: identity(tool).schemaHash })),
+        tools: tools.slice(0, limit).map(tool => {
+          const version = identity(tool)
+          return {
+            name: tool.name, schemaHash: version.schemaHash,
+            evidenceStatus: evidenceStatus === 'no_observations' && epochs.has(version.definitionEpoch) ? 'observed' : evidenceStatus,
+          }
+        }),
       }
     },
   }))
@@ -220,7 +251,7 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
       const condition = rules.get(exec.name)
       stage.validation = tool && preflight.check(tool.parameters, exec.arguments)
       stage.version = tool && store ? identity(tool) : undefined
-      stage.featureKey = conditionKey(condition)
+      stage.featureKey = conditionKeys.get(exec.name)
       stage.featureBucket = conditionBucket(condition, exec.arguments)
     } catch {
       // The original DSH call still proceeds when its schema cannot be profiled.
@@ -281,11 +312,13 @@ export function apply(ctx: Context, config: PluginOptions = {}): void {
           stage.validation?.validation === 'valid' ? candidateFor(exec.name, exec.arguments, exec) : null
         const evidence = evidenceFor(exec.name, exec.arguments, exec)
         const repeated = evidence?.failureGroups.get(code)
-        if (repeated && repeated.count >= 3) {
-          recommendation = ` 相同条件已观察到多次同类失败（成功 ${evidence!.success}，失败 ${evidence!.error}，证据 ${repeated.latest}）。`
+        if (evidence && repeated && repeated.count >= 3) {
+          recommendation = ` 相同条件已观察到多次同类失败（成功 ${evidence.success}，失败 ${evidence.error}，证据 ${repeated.latest}）。`
         }
         if (candidate) {
           recommendation += ` 可尝试同条件下已有成功记录的 ${candidate.tool}（成功 ${candidate.success}，失败 ${candidate.error}，证据 ${candidate.evidenceId}）。`
+        } else if (code === 'UNCLASSIFIED_ERROR' && alternative.has(exec.name)) {
+          recommendation += ' 暂无经过观测验证的替代工具。'
         }
       }
     } catch {
