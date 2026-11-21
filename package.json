@@ -1,0 +1,45 @@
+{
+  "name": "dsh-tooldna",
+  "version": "0.1.0",
+  "description": "Evidence-based MCP tool diagnostics for DeepSeek Harness",
+  "type": "module",
+  "license": "MIT",
+  "exports": "./dist/dsh-plugin.js",
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.9.0 <25",
+    "dsh": "0.2.2-rc.5"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
+    "@deepseek-ai/schemastery": "~3.19.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
+    "@deepseek-ai/schemastery": "~3.19.0",
+    "@types/node": "^24",
+    "playwright": "^1.65.1",
+    "typescript": "^5.9"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  }
+}

@@ -1,0 +1,17 @@
+- insert:
+    - id: tooldna-demo-pdf-a
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: pdf_a
+        transport: stdio
+        command: !!js process.execPath
+        args: [!!js process.env.TOOLDNA_FIXTURE_PATH, a]
+        failOnStartupError: true
+    - id: tooldna-demo-pdf-b
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: pdf_b
+        transport: stdio
+        command: !!js process.execPath
+        args: [!!js process.env.TOOLDNA_FIXTURE_PATH, b]
+        failOnStartupError: true

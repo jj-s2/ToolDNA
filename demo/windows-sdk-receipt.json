@@ -1,0 +1,19 @@
+{
+  "platform": "win32-x64",
+  "node": "24.18.0",
+  "dsh": "0.2.2-rc.5",
+  "profile": "sdk",
+  "fixture": "local scripted OpenAI Chat Completions and two local stdio MCP services",
+  "tarballSha256": "f783cf6f46a0b47898677dcd203a82a0902df26ec5b2d9ca7d8c0d8e361e05d3",
+  "lockfileSha256": "9460a946a59ca42e9a26443ff6445fb9bdb4a5eda4fe17ab22ad17bd81aa9cf2",
+  "modelRequests": 3,
+  "bothToolsVisible": true,
+  "originalFailureDelivered": true,
+  "diagnosisDelivered": true,
+  "fallbackExecutedByScriptedModel": true,
+  "observations": [
+    {"tool": "mcp__pdf_a__read_pdf", "status": "error", "dispatchSeen": true},
+    {"tool": "mcp__pdf_b__read_pdf", "status": "success", "dispatchSeen": true}
+  ],
+  "scope": "SDK profile runtime verification. The scripted model chose the fallback after observing a diagnostic."
+}

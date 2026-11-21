@@ -1,0 +1,9 @@
+- id: llm-pi-ai
+  config:
+    providers:
+      tooldna-fixture:
+        api: openai-completions
+        baseURL: !!js process.env.TOOLDNA_MODEL_URL
+        apiKeyEnv: TOOLDNA_FIXTURE_KEY
+        models:
+          - id: fixture-model

@@ -1,0 +1,28 @@
+{
+  "dsh": "0.2.2-rc.5",
+  "node": "24.18.0",
+  "tarballSha256": "d3a41e3cd66f2f6c1553cb289dcddea34abd190ca73a91065da84654836fb5de",
+  "lockfileSha256": "ed553d087b5414e04c7632a37a09d23bf9624a07e10c647b826701ef4ad4120b",
+  "fixtures": "Two local stdio MCP servers and a local scripted OpenAI Chat Completions provider",
+  "runs": [
+    {"platform": "Windows x64", "profile": "web", "browser": "Edge", "install": true, "requests": 5, "evidenceLinked": true, "fallback": true, "uninstallControlRequests": 2},
+    {"platform": "Ubuntu 22.04 x64 under WSL2", "profile": "sdk", "install": true, "requests": 5, "evidenceLinked": true, "fallback": true, "uninstallControlRequests": 2},
+    {"platform": "Ubuntu 22.04 x64 under WSL2", "profile": "web", "browser": "Chromium headless shell", "install": true, "requests": 5, "evidenceLinked": true, "fallback": true, "uninstallControlRequests": 2}
+  ],
+  "benchmark": {
+    "platform": "Windows x64",
+    "fixture": "DSH tool execution pipeline with fixed local registered tool body",
+    "warmupPerGroup": 50,
+    "measuredPerGroup": 500,
+    "baselineMs": {"p50": 0.0641, "p95": 0.1360, "p99": 0.3701},
+    "enabledMs": {"p50": 0.1141, "p95": 0.1938, "p99": 0.3868},
+    "deltaP95Ms": 0.0578,
+    "dropped": 0
+  },
+  "observedFixtureSetupFailures": [
+    "First Windows browser attempt interacted with an inert composer under the first-run notice.",
+    "Early Windows browser fixture counted the extra Web session-title request as a task request.",
+    "Linux browser requires a deterministic documents directory. Sharing the home with prior SDK sessions prevented Web first-use workspace creation."
+  ],
+  "scope": "Install, deterministic recovery and uninstall controls. This receipt does not close the full T01–T11 release audit."
+}

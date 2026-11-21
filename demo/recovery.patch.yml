@@ -1,0 +1,12 @@
+- id: tooldna
+  config:
+    conditionRules:
+      - tool: mcp__pdf_a__read_pdf
+        numericField: maxPages
+        cutoffs: [20]
+      - tool: mcp__pdf_b__read_pdf
+        numericField: maxPages
+        cutoffs: [20]
+    readOnlyAlternatives:
+      - from: mcp__pdf_a__read_pdf
+        to: mcp__pdf_b__read_pdf

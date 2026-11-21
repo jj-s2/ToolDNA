@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.tgz
+.dsh-test/
+demo/local-receipt.json
